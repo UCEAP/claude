@@ -5,8 +5,8 @@
   },
   "plugins": [
     {
-      "name": "general",
-      "source": "./general",
+      "name": "uceap",
+      "source": "./uceap",
       "description": "A general plugin to support routine practices of UCEAP software engineering."
     }
   ]
