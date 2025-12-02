@@ -1,3 +1,8 @@
+---
+name: dev-meeting-followup
+description: Review developer meeting notes from the UCEAP IT Software Engineering wiki to process any outstandingaction items. Creates Jira tickets, updates meeting notes, and manages the wiki Home page. Use when processing UCEAP meeting followups or planning a dev meeting.
+---
+
 # Developer Meeting Followup Skill
 
 This skill helps you systematically work through developer meeting notes from the UCEAP/.github-private wiki to identify and resolve unresolved followup items.
