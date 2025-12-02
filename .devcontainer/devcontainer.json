@@ -1,0 +1,33 @@
+{
+  "name": "UCEAP Claude Marketplace",
+  "image": "ghcr.io/uceap/devcontainer-drupal:main",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "containerEnv": {
+    // Tell our scripts where to find the workspace
+    "WORKSPACE_FOLDER": "${containerWorkspaceFolder}",
+    // Azure AI Foundry API Key
+    "ANTHROPIC_FOUNDRY_API_KEY": "${localEnv:ANTHROPIC_FOUNDRY_API_KEY}",
+    // Inherit (optional) Atuin key and password from local environment to setup sync.
+    "ATUIN_KEY": "${localEnv:ATUIN_KEY}",
+    "ATUIN_PASSWORD": "${localEnv:ATUIN_PASSWORD}",
+    // Codespaces sets GITHUB_TOKEN, and github-cli respects that but prioritizes GH_TOKEN.
+    // So we can have one config that works with GITHUB_TOKEN on Codespaces and GH_TOKEN locally.
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+  },
+  // GitHub Codespaces secrets
+  "secrets": {
+    "ANTHROPIC_FOUNDRY_API_KEY": {
+      "description": "Azure AI Foundry API Key for Claude Code (OPTIONAL)",
+      "documentationUrl": "https://code.claude.com/docs/en/microsoft-foundry"
+    },
+    "ATUIN_KEY": {
+      "description": "Set your Atuin key for sync (OPTIONAL)",
+      "documentationUrl": "https://docs.atuin.sh/guide/sync/"
+    },
+    "ATUIN_PASSWORD": {
+      "description": "Set your Atuin password for sync (OPTIONAL)",
+      "documentationUrl": "https://docs.atuin.sh/guide/sync/"
+    }
+  },
+  "onCreateCommand": ".devcontainer/onCreate.sh"
+}
