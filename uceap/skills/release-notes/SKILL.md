@@ -18,6 +18,8 @@ When this skill is invoked with a version number (e.g., `/release-notes UP-V33.5
 
 ### Steps
 
+#### Phase 1: Gather Information
+
 1. **Parse Arguments:**
    - Extract the version number from the command arguments
    - Accept either `UP-V33.5` or `33.5` format
@@ -101,31 +103,27 @@ When this skill is invoked with a version number (e.g., `/release-notes UP-V33.5
 
    - If the milestone has very few non-excluded PRs (e.g., only meta PRs), inform the user and ask whether to examine the git diff between the previous tag and the new tag commit to find additional changes
 
-8. **Identify the Tag Commit:**
-   - First, check if the tag already exists:
+8. **Cross-Reference Jira Release and GitHub Milestone:**
+   - If the Jira release was found (step 4), fetch all issues tagged with that fixVersion:
      ```bash
-     git tag -l "UP-V{version}"
+     curl -s -X GET \
+       -H "Accept: application/json" \
+       -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+       "${JIRA_BASE_URL}/rest/api/3/search?jql=project%20%3D%20UP%20AND%20fixVersion%20%3D%20%22UP-V{version}%22&fields=key,summary&maxResults=100"
      ```
-   - If the tag already exists, skip tag creation (step 9) and use the existing tag
-   - If the tag does not exist, find the most recent merge of qa into master that corresponds to this release:
-     ```bash
-     git log master --merges --first-parent --format="%H %s" | head -20
-     ```
-   - Present the candidate commit to the user for confirmation using AskUserQuestion
-   - The commit message typically looks like: `Merge pull request #XXXX from UCEAP/qa`
+   - Build two sets:
+     - **Jira tickets in the release**: all ticket keys from the Jira fixVersion query above
+     - **Jira tickets referenced by PRs**: all `UP-XXXX` ticket IDs extracted from PR titles in the GitHub milestone (from step 3)
+   - Exclude the deployment ticket (from step 5) from both sets — it is expected to be in Jira but not have a PR
+   - Compare the two sets and report discrepancies:
+     - **Jira tickets with no corresponding PR**: tickets in the Jira release that are not referenced by any PR in the milestone. Use AskUserQuestion to present the list and ask the user how to proceed (e.g., the ticket may need a PR, may be documentation-only, or may have been tagged with the wrong fixVersion)
+     - **PR tickets not in the Jira release**: tickets referenced by milestone PRs that are not in the Jira fixVersion. Use AskUserQuestion to present the list and ask the user how to proceed (e.g., the Jira ticket may need its fixVersion updated, or the PR title may reference the wrong ticket)
+   - If there are no discrepancies, report that the Jira release and GitHub milestone are in sync and continue
+   - If the Jira release was not found (step 4), skip this step
 
-9. **Create Annotated Git Tag:**
-   - Skip this step if the tag already exists (detected in step 8)
-   - Create the tag at the confirmed commit:
-     ```bash
-     git tag -a UP-V{version} {sha} -m "Release UP-V{version}"
-     ```
-   - Push the tag to the remote:
-     ```bash
-     git push origin UP-V{version}
-     ```
+#### Phase 2: Generate Documentation (on `qa` branch, before merge)
 
-10. **Create MkDocs Page:**
+9. **Create MkDocs Page:**
     - Write the release notes file at `docs/reference/version-history/up-v{version-with-dashes}.md`
     - Version dashes: replace dots with dashes (e.g., `33.5` becomes `33-5`, so filename is `up-v33-5.md`)
     - Use this exact format (H1 and H2 headings for MkDocs):
@@ -150,7 +148,7 @@ When this skill is invoked with a version number (e.g., `/release-notes UP-V33.5
     - If one section has no entries, omit that section entirely
     - If Jira Release was not found, omit the Jira Release line (keep only the Milestone line, without the `|` separator)
 
-11. **Update Index and Navigation:**
+10. **Update Index and Navigation:**
     - **Index file** (`docs/reference/version-history/index.md`):
       - Add the new version as the first data row in the table (after the header row)
       - Determine the current month and year for the Date column
@@ -161,7 +159,67 @@ When this skill is invoked with a version number (e.g., `/release-notes UP-V33.5
       - Format: `      - UP-V{version}: reference/version-history/up-v{dashed}.md`
       - Maintain descending order (newest first, right after Overview)
 
-12. **Create GitHub Release:**
+11. **Build Docs:**
+    - Run the documentation compiler to verify the new page works:
+      ```bash
+      composer compile-docs
+      ```
+    - If the build fails, diagnose and fix the issue before proceeding
+
+12. **Commit Release Notes to `qa`:**
+    - Ensure you are on the `qa` branch
+    - Stage the new/modified files:
+      ```bash
+      git add docs/reference/version-history/up-v{dashed}.md docs/reference/version-history/index.md mkdocs.yml
+      ```
+    - Commit:
+      ```bash
+      git commit -m "UP-V{version} release notes"
+      ```
+    - Push to remote:
+      ```bash
+      git push origin qa
+      ```
+
+13. **Create Release PR:**
+    - Create a pull request to merge `qa` into `master`:
+      ```bash
+      gh pr create --base master --head qa \
+        --title "UP-V{version}" \
+        --body "Release UP-V{version}: {title}"
+      ```
+    - Tell the user to review, approve, and merge this PR before continuing
+    - **STOP HERE** and wait for the user to confirm the PR has been merged before proceeding to Phase 3. Use the AskUserQuestion tool to ask the user to confirm when the merge is complete.
+
+#### Phase 3: Tag & Release (after merge to `master`)
+
+14. **Identify the Tag Commit:**
+    - First, check if the tag already exists:
+      ```bash
+      git tag -l "UP-V{version}"
+      ```
+    - If the tag already exists, skip tag creation (step 15) and use the existing tag
+    - If the tag does not exist, fetch the latest master and find the merge commit:
+      ```bash
+      git fetch origin master
+      git log origin/master --merges --first-parent --format="%H %s" | head -5
+      ```
+    - The most recent merge commit should be the release PR just merged
+    - Present the candidate commit to the user for confirmation using AskUserQuestion
+    - The commit message typically looks like: `Merge pull request #XXXX from UCEAP/qa`
+
+15. **Create Annotated Git Tag:**
+    - Skip this step if the tag already exists (detected in step 14)
+    - Create the tag at the confirmed commit:
+      ```bash
+      git tag -a UP-V{version} {sha} -m "Release UP-V{version}"
+      ```
+    - Push the tag to the remote:
+      ```bash
+      git push origin UP-V{version}
+      ```
+
+16. **Create GitHub Release:**
     - Check if a GitHub Release already exists for this tag:
       ```bash
       gh release view UP-V{version} 2>/dev/null
@@ -185,21 +243,13 @@ When this skill is invoked with a version number (e.g., `/release-notes UP-V33.5
       ```
     - Note the heading level difference: GitHub Release notes use `##` and `###`, while MkDocs pages use `#` and `##`
 
-13. **Build Docs:**
-    - Run the documentation compiler to verify the new page works:
-      ```bash
-      composer compile-docs
-      ```
-    - If the build fails, diagnose and fix the issue before proceeding
-
-14. **Report:**
+17. **Report:**
     - Display a summary of everything that was created:
       - Git tag: `UP-V{version}` at `{sha}`
       - MkDocs page: `docs/reference/version-history/up-v{dashed}.md`
       - GitHub Release: link to the release
       - Index updated: `docs/reference/version-history/index.md`
       - Nav updated: `mkdocs.yml`
-    - Remind the user to commit the documentation changes (MkDocs page, index, and mkdocs.yml)
 
 ### Error Handling
 
