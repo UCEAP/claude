@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# scripts/jira-transition — list or execute Jira issue transitions.
+# Usage:
+#   scripts/jira-transition <KEY>                 # list available transitions
+#   scripts/jira-transition <KEY> "<name>"        # execute transition matching <name>
+# The name match is case-insensitive. If no match, available transitions are printed.
+# Requires env vars: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BASE_URL.
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 || "$1" == "-h" || "$1" == "--help" ]]; then
+  sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+fi
+
+: "${JIRA_EMAIL:?JIRA_EMAIL not set}"
+: "${JIRA_API_TOKEN:?JIRA_API_TOKEN not set}"
+: "${JIRA_BASE_URL:?JIRA_BASE_URL not set}"
+
+key="$1"
+url="$JIRA_BASE_URL/rest/api/3/issue/$key/transitions"
+
+response=$(curl -sS -w $'\n%{http_code}' \
+  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  -H 'Accept: application/json' \
+  "$url")
+status_code=${response##*$'\n'}
+body=${response%$'\n'*}
+
+if [[ "$status_code" != "200" ]]; then
+  echo "Jira API returned HTTP $status_code for $key transitions" >&2
+  echo "$body" >&2
+  exit 1
+fi
+
+if [[ $# -eq 1 ]]; then
+  jq -r '.transitions[] | "\(.name) → \(.to.name)"' <<<"$body"
+  exit 0
+fi
+
+target="$2"
+transition_id=$(jq -r --arg t "$target" '
+  .transitions
+  | map(select((.name | ascii_downcase) == ($t | ascii_downcase)))
+  | (first // {}).id // empty
+' <<<"$body")
+
+if [[ -z "$transition_id" ]]; then
+  echo "No transition named \"$target\" available for $key." >&2
+  echo "Available transitions:" >&2
+  jq -r '.transitions[] | "  \(.name) → \(.to.name)"' <<<"$body" >&2
+  exit 1
+fi
+
+payload=$(jq -nc --arg id "$transition_id" '{transition: {id: $id}}')
+exec_response=$(curl -sS -w $'\n%{http_code}' \
+  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -X POST --data "$payload" \
+  "$url")
+exec_status=${exec_response##*$'\n'}
+exec_body=${exec_response%$'\n'*}
+
+if [[ "$exec_status" != "204" ]]; then
+  echo "Transition failed (HTTP $exec_status)" >&2
+  echo "$exec_body" >&2
+  exit 1
+fi
+
+echo "$key transitioned to \"$target\""

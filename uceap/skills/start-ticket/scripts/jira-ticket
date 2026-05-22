@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# scripts/jira-ticket — fetch a Jira ticket and print its title, status, description, and comments.
+# Usage: scripts/jira-ticket <KEY>          (e.g. M2P4-364, UP-1234)
+# Requires env vars: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BASE_URL.
+set -euo pipefail
+
+if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+  sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+fi
+
+: "${JIRA_EMAIL:?JIRA_EMAIL not set}"
+: "${JIRA_API_TOKEN:?JIRA_API_TOKEN not set}"
+: "${JIRA_BASE_URL:?JIRA_BASE_URL not set}"
+
+key="$1"
+url="$JIRA_BASE_URL/rest/api/3/issue/$key?fields=summary,status,description,comment"
+
+response=$(curl -sS -w $'\n%{http_code}' \
+  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  -H 'Accept: application/json' \
+  "$url")
+status_code=${response##*$'\n'}
+body=${response%$'\n'*}
+
+if [[ "$status_code" != "200" ]]; then
+  echo "Jira API returned HTTP $status_code for $key" >&2
+  echo "$body" >&2
+  exit 1
+fi
+
+# v3 returns descriptions and comment bodies as Atlassian Document Format (ADF) JSON, not strings.
+# The adf2md filter below produces a markdown-ish plaintext approximation; unknown node types fall
+# through to their concatenated children so text content is never silently dropped.
+jq -r '
+  def adf2md:
+    if type == "string" then .
+    elif . == null then ""
+    elif type == "array" then map(adf2md) | join("")
+    elif type == "object" then
+      . as $n |
+      ((.content // []) | map(adf2md) | join("")) as $inner |
+      if   .type == "text"        then (.text // "")
+      elif .type == "paragraph"   then $inner + "\n\n"
+      elif .type == "heading"     then ("######" | .[0:($n.attrs.level // 1)]) + " " + $inner + "\n\n"
+      elif .type == "hardBreak"   then "\n"
+      elif .type == "bulletList"
+        or .type == "orderedList" then $inner + "\n"
+      elif .type == "listItem"    then "- " + ($inner | sub("\n+$"; "")) + "\n"
+      elif .type == "blockquote"  then "> " + ($inner | sub("\n+$"; "")) + "\n\n"
+      elif .type == "codeBlock"   then "```\n" + $inner + "\n```\n\n"
+      elif .type == "rule"        then "\n---\n\n"
+      elif .type == "mention"     then ($n.attrs.text // ("@" + ($n.attrs.id // "?")))
+      elif .type == "inlineCard"  then ($n.attrs.url // "")
+      elif .type == "media"
+        or .type == "mediaSingle"
+        or .type == "mediaGroup"  then "(media)"
+      else $inner end
+    else "" end;
+  def render: if . == null then "(empty)" else adf2md end;
+
+  "# \(.key) — \(.fields.summary)",
+  "Status: \(.fields.status.name)",
+  "",
+  "## Description",
+  "",
+  (.fields.description | render),
+  "## Comments (\(.fields.comment.total // (.fields.comment.comments | length)))",
+  ((.fields.comment.comments // [])[] |
+    "\n### \(.author.displayName) — \(.created)\n\n\(.body | render)")
+' <<<"$body"

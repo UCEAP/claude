@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# scripts/jira-comment — post a markdown comment to a Jira ticket.
+# Usage:
+#   scripts/jira-comment <KEY> -m "comment text"
+#   scripts/jira-comment <KEY> < comment.md
+# Markdown subset supported (blocks separated by blank lines):
+#   "# " / "## " / "### " — headings
+#   "- " lines              — bullet list
+#   "1. " / "2. " ... lines — ordered list
+#   anything else            — paragraph (line breaks preserved as hard breaks)
+# Bare URLs in text are auto-linkified by Jira's renderer; no inline parsing is done.
+# Requires env vars: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BASE_URL.
+set -euo pipefail
+
+key=""
+message=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -m|--message) message="$2"; shift 2 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)
+      if [[ -z "$key" ]]; then key="$1"; shift
+      else echo "Unexpected argument: $1" >&2; exit 2
+      fi ;;
+  esac
+done
+
+if [[ -z "$key" ]]; then
+  echo "Usage: $(basename "$0") <KEY> [-m message]" >&2
+  exit 2
+fi
+
+if [[ -z "$message" ]]; then
+  if [[ -t 0 ]]; then
+    echo "No message provided — use -m or pipe text on stdin." >&2
+    exit 2
+  fi
+  message=$(cat)
+fi
+
+: "${JIRA_EMAIL:?JIRA_EMAIL not set}"
+: "${JIRA_API_TOKEN:?JIRA_API_TOKEN not set}"
+: "${JIRA_BASE_URL:?JIRA_BASE_URL not set}"
+
+# Markdown → ADF. Blocks split on blank lines. The line-break / list detection
+# is intentionally minimal — Jira's renderer auto-linkifies URLs and bolds etc.
+# are dropped (text is rendered verbatim inside text nodes).
+adf=$(jq -n --arg md "$message" '
+  def lines_of: split("\n");
+
+  def to_paragraph(lines):
+    {type: "paragraph",
+     content: (lines
+       | map({type: "text", text: .})
+       | . as $ts
+       | reduce range(0; ($ts | length)) as $i ([];
+           . + (if $i == 0 then [$ts[$i]] else [{type: "hardBreak"}, $ts[$i]] end)))};
+
+  def to_block:
+    . as $block
+    | lines_of as $lines
+    | if   ($block | startswith("### ")) then
+        {type:"heading", attrs:{level:3}, content:[{type:"text", text: $block[4:]}]}
+      elif ($block | startswith("## "))  then
+        {type:"heading", attrs:{level:2}, content:[{type:"text", text: $block[3:]}]}
+      elif ($block | startswith("# "))   then
+        {type:"heading", attrs:{level:1}, content:[{type:"text", text: $block[2:]}]}
+      elif (($lines | length) > 0 and all($lines[]; startswith("- "))) then
+        {type:"bulletList",
+         content: ($lines | map(
+           {type:"listItem",
+            content:[{type:"paragraph", content:[{type:"text", text: .[2:]}]}]}))}
+      elif (($lines | length) > 0 and all($lines[]; test("^[0-9]+\\. "))) then
+        {type:"orderedList",
+         content: ($lines | map(
+           {type:"listItem",
+            content:[{type:"paragraph",
+                      content:[{type:"text", text: (sub("^[0-9]+\\. "; ""))}]}]}))}
+      else
+        to_paragraph($lines)
+      end;
+
+  {type:"doc", version:1,
+   content: ($md | gsub("\r\n"; "\n") | split("\n\n") | map(select(length > 0) | to_block))}
+')
+
+payload=$(jq -nc --argjson body "$adf" '{body: $body}')
+
+response=$(curl -sS -w $'\n%{http_code}' \
+  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -X POST --data "$payload" \
+  "$JIRA_BASE_URL/rest/api/3/issue/$key/comment")
+status_code=${response##*$'\n'}
+body=${response%$'\n'*}
+
+if [[ "$status_code" != "201" ]]; then
+  echo "Comment failed (HTTP $status_code) for $key" >&2
+  echo "$body" >&2
+  exit 1
+fi
+
+comment_id=$(jq -r '.id' <<<"$body")
+echo "Posted comment $comment_id on $key"

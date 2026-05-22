@@ -5,6 +5,24 @@ description: Start work on a Jira ticket by fetching details, creating a branch,
 
 # Start Ticket
 
+## Bundled helper scripts
+
+Four bash helpers ship in this skill's `scripts/` directory. They wrap the Jira REST API so the rest of these instructions never need raw curl:
+
+- `jira-ticket <KEY>` — fetch a ticket as markdown (title, status, description, comments)
+- `jira-search <JQL> [--max N]` — search via JQL
+- `jira-transition <KEY> ["<name>"]` — list available transitions, or execute one by name (case-insensitive)
+- `jira-comment <KEY> -m "<markdown>"` (or read from stdin) — post a markdown comment, converted to ADF
+
+**Resolve the script directory once at the start of every invocation** and reuse it. The skill is installed under `~/.claude/plugins/`, but the exact subpath varies by version. Use:
+
+```bash
+JIRA_SCRIPTS=$(find ~/.claude/plugins -path '*/skills/start-ticket/scripts' -type d 2>/dev/null | head -1)
+echo "$JIRA_SCRIPTS"   # confirm it resolved
+```
+
+Then invoke as `"$JIRA_SCRIPTS/jira-ticket" UP-1234` etc. Since bash variables don't persist across separate tool calls, either run helper invocations as a single bash command alongside the discovery, or hardcode the resolved absolute path for the rest of the session after the first `find`.
+
 ## Instructions
 
 When this skill is invoked with a Jira ticket ID (e.g., `/start-ticket UP-1600`), help the user start work on that ticket.
@@ -22,23 +40,21 @@ When this skill is invoked with a Jira ticket ID (e.g., `/start-ticket UP-1600`)
      - `JIRA_API_TOKEN` - API token for Jira authentication
      - `JIRA_BASE_URL` - Base URL of the Jira instance
    - If any are missing, inform the user which variables need to be configured
+   - Resolve `$JIRA_SCRIPTS` (see "Bundled helper scripts" above) and verify the directory exists.
 
 3. **Fetch Ticket Details:**
-   - Use curl to fetch the issue from the Jira REST API:
+   - Run the bundled helper to fetch the ticket as markdown (title, status, description, comments — ADF auto-converted):
+     ```bash
+     "$JIRA_SCRIPTS/jira-ticket" {TICKET_ID}
+     ```
+   - If you need additional fields the helper doesn't print (Priority, Assignee, custom acceptance-criteria fields), fall back to the raw REST API:
      ```bash
      curl -s -X GET \
        -H "Accept: application/json" \
        -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
        "${JIRA_BASE_URL}/rest/api/3/issue/{TICKET_ID}"
      ```
-   - Parse the JSON response to extract:
-     - Summary (title)
-     - Description
-     - Status
-     - Priority
-     - Assignee
-     - Any acceptance criteria or subtasks
-   - If the API call fails, display the error and stop
+   - If the helper or API call fails, display the error and stop
 
 4. **Check for Existing Branches:**
    - Search for branches that already contain this ticket ID:
@@ -90,23 +106,9 @@ When this skill is invoked with a Jira ticket ID (e.g., `/start-ticket UP-1600`)
    - Once the user has approved the plan and you're ready to begin implementation:
    - Check the ticket's current status from the fetched data (step 3)
    - If the status is "Open", transition it to "In Progress":
-     - First, get available transitions for the issue:
-       ```bash
-       curl -s -X GET \
-         -H "Accept: application/json" \
-         -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
-         "${JIRA_BASE_URL}/rest/api/3/issue/{TICKET_ID}/transitions"
-       ```
-     - Find the transition ID for "In Progress" from the response
-     - Execute the transition:
-       ```bash
-       curl -s -X POST \
-         -H "Accept: application/json" \
-         -H "Content-Type: application/json" \
-         -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
-         -d '{"transition": {"id": "{TRANSITION_ID}"}}' \
-         "${JIRA_BASE_URL}/rest/api/3/issue/{TICKET_ID}/transitions"
-       ```
+     ```bash
+     "$JIRA_SCRIPTS/jira-transition" {TICKET_ID} "In Progress"
+     ```
    - If the status is not "Open", skip this step (do not change the status)
    - Inform the user of the status update (or that it was skipped)
 
@@ -148,40 +150,27 @@ When this skill is invoked with a Jira ticket ID (e.g., `/start-ticket UP-1600`)
     - If yes:
       - Watch the GitHub Actions workflow run using `gh run watch --exit-status`
       - If the workflow **passes**:
-        - **Transition the Jira ticket to "Ready for feature testing":**
-          - Fetch available transitions:
-            ```bash
-            curl -s -X GET \
-              -H "Accept: application/json" \
-              -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
-              "${JIRA_BASE_URL}/rest/api/3/issue/{TICKET_ID}/transitions"
-            ```
-          - Find the transition ID for "Ready for feature testing" and execute it:
-            ```bash
-            curl -s -X POST \
-              -H "Accept: application/json" \
-              -H "Content-Type: application/json" \
-              -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
-              -d '{"transition": {"id": "{TRANSITION_ID}"}}' \
-              "${JIRA_BASE_URL}/rest/api/3/issue/{TICKET_ID}/transitions"
-            ```
+        - **Transition the Jira ticket to "Ready for Feature Testing":**
+          ```bash
+          "$JIRA_SCRIPTS/jira-transition" {TICKET_ID} "Ready for Feature Testing"
+          ```
         - **Post a comment to the Jira ticket** with the test plan and a link to the Pantheon environment:
           - Determine the Pantheon environment name from the branch (typically `pr-{PR_NUMBER}` or the multidev name from the CI logs)
           - The Pantheon environment URL follows the pattern: `https://pr-{PR_NUMBER}-myeap2.pantheonsite.io`
-          - Post the comment using the Jira REST API:
+          - Compose the comment as markdown and post via the helper. Example:
             ```bash
-            curl -s -X POST \
-              -H "Accept: application/json" \
-              -H "Content-Type: application/json" \
-              -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
-              -d '{
-                "body": {
-                  "type": "doc",
-                  "version": 1,
-                  "content": [...]
-                }
-              }' \
-              "${JIRA_BASE_URL}/rest/api/3/issue/{TICKET_ID}/comment"
+            "$JIRA_SCRIPTS/jira-comment" {TICKET_ID} -m "$(cat <<'EOF'
+            ## Test Plan
+
+            - Step 1
+            - Step 2
+            - Step 3
+
+            Pantheon environment: https://pr-{PR_NUMBER}-myeap2.pantheonsite.io
+
+            GitHub PR: https://github.com/UCEAP/myeap2/pull/{PR_NUMBER}
+            EOF
+            )"
             ```
           - The comment should include:
             - A heading: "Test Plan"

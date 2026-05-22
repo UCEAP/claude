@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# scripts/jira-search — search Jira via JQL.
+# Usage: scripts/jira-search <JQL> [--max N]
+# Examples:
+#   scripts/jira-search 'text ~ "budget line item"'
+#   scripts/jira-search 'project = M2P AND text ~ "budget"' --max 50
+# Requires env vars: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BASE_URL.
+set -euo pipefail
+
+max=25
+jql=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --max) max="$2"; shift 2 ;;
+    --max=*) max="${1#--max=}"; shift ;;
+    -h|--help) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)
+      if [[ -z "$jql" ]]; then jql="$1"; shift
+      else echo "Unexpected argument: $1" >&2; exit 2
+      fi ;;
+  esac
+done
+
+if [[ -z "$jql" ]]; then
+  echo "Usage: $(basename "$0") <JQL> [--max N]" >&2
+  exit 2
+fi
+
+: "${JIRA_EMAIL:?JIRA_EMAIL not set}"
+: "${JIRA_API_TOKEN:?JIRA_API_TOKEN not set}"
+: "${JIRA_BASE_URL:?JIRA_BASE_URL not set}"
+
+# Uses the cursor-based /rest/api/3/search/jql endpoint. Atlassian removed the legacy
+# /rest/api/2/search endpoint in 2025 (see CHANGE-2046).
+payload=$(jq -nc --arg jql "$jql" --argjson max "$max" \
+  '{jql: $jql, fields: ["summary","status"], maxResults: $max}')
+
+response=$(curl -sS -w $'\n%{http_code}' \
+  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -X POST --data "$payload" \
+  "$JIRA_BASE_URL/rest/api/3/search/jql")
+status_code=${response##*$'\n'}
+body=${response%$'\n'*}
+
+if [[ "$status_code" != "200" ]]; then
+  echo "Jira API returned HTTP $status_code" >&2
+  echo "$body" >&2
+  exit 1
+fi
+
+jq -r '.issues[] | "\(.key) [\(.fields.status.name)] \(.fields.summary)"' <<<"$body"
+
+shown=$(jq -r '.issues | length' <<<"$body")
+more=$(jq -r 'if (.nextPageToken // null) == null then "" else " (more pages available; pass --max N for a larger page, or refine the JQL)" end' <<<"$body")
+echo
+echo "Showing $shown result(s).$more"
