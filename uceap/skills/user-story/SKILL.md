@@ -154,7 +154,7 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    - [ ] **Small**: Can this be completed in one sprint?
    - [ ] **Testable**: Are there clear, verifiable success criteria?
    ```
-   Note: In each scenarios section a '/' is need to display a line return when rendering the markdown. This only need for the middle section of text. The header and last line do not need it. This strictly a markdown rendering issue.
+   Note: In each scenarios section a '\' is need to display a line return when rendering the markdown. The header and last line do not need this '\'. This strictly a markdown rendering issue.
 
 8. **Ensure Directory Exists:**
    ```bash
