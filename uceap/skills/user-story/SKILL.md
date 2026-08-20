@@ -2,7 +2,7 @@
 name: user-story
 description: Generate a user story following best practices for the current feature branch
 author: "Shaun Drong <sdrong@uceap.universityofcalifornia.edu> (Original: [Britt Crawford](https://github.com/britt/claude-code-skills/blob/main/skills/user-story-template/SKILL.md))"
-version: "1.0.0"
+version: "1.0.1"
 license: "MIT"
 user_invocable: true
 user_intent:
@@ -86,8 +86,8 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    Example:
    ```
    ### Scenario 1: Student submits complete application
-   **Given** I am a logged-in student with all required documents uploaded
-   **When** I click the "Submit Application" button
+   **Given** I am a logged-in student with all required documents uploaded\
+   **When** I click the "Submit Application" button\
    **Then** my application status changes to "Submitted" and I receive a confirmation email
    ```
 
@@ -122,13 +122,13 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    ## Acceptance Criteria
 
    ### Scenario 1: {Name}
-   **Given** {initial context}
-   **When** {action occurs}
+   **Given** {initial context}\
+   **When** {action occurs}\
    **Then** {expected outcome}
 
    ### Scenario 2: {Name}
-   **Given** {initial context}
-   **When** {action occurs}
+   **Given** {initial context}\
+   **When** {action occurs}\
    **Then** {expected outcome}
 
    ## Dependencies
@@ -154,6 +154,7 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    - [ ] **Small**: Can this be completed in one sprint?
    - [ ] **Testable**: Are there clear, verifiable success criteria?
    ```
+   Note: In each scenarios section a '\' is need to display a line return when rendering the markdown. The header and last line do not need this '\'. This strictly a markdown rendering issue.
 
 8. **Ensure Directory Exists:**
    ```bash
@@ -178,7 +179,7 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
     - Remind the user of the DDD workflow order:
       1. ✅ User Story (just completed)
       2. ⏭️ Documentation (`docs/` directory)
-      3. ⏭️ E2E Tests (Cypress/Cucumber `.feature` files)
+      3. ⏭️ E2E Tests (Cypress `.cy.js` files)
       4. ⏭️ Implementation (code changes)
     - Suggest running `/plan` to begin implementation planning, which will reference this user story
 
@@ -196,12 +197,10 @@ So that [benefit or value]
 
 Use Given-When-Then for each scenario:
 ```
-**Given** [initial context/state]
-**When** [action or event]
+**Given** [initial context/state]\
+**When** [action or event]\
 **Then** [expected outcome]
 ```
-
-This format maps directly to Cucumber/Gherkin syntax for e2e tests.
 
 ## INVEST Criteria
 
@@ -248,21 +247,38 @@ The `start-ticket` skill could optionally:
 
 ### With E2E Test Generation
 
-When writing Cypress/Cucumber `.feature` files:
+When writing pure Cypress `.cy.js` test files:
 1. Read the user story's acceptance criteria
-2. Convert Given-When-Then scenarios directly to Gherkin:
-   ```gherkin
-   Feature: {Feature Title}
+2. Create a test file in `tests/cypress/e2e/` with descriptive naming: `{feature-name}.cy.js`
+3. Convert Given-When-Then scenarios to Cypress test structure:
+   ```javascript
+   /**
+    * E2E Test for: {Feature Title}
+    * Based on user story: user-stories/{branch-name}.md
+    */
    
-   Scenario: {Scenario Name}
-     Given {initial context}
-     When {action occurs}
-     Then {expected outcome}
+   describe('Feature: {Feature Title}', () => {
+     beforeEach(() => {
+       // Login setup if needed
+       cy.login('testuser', 'password'); // Use custom command or direct login
+     });
+   
+     it('should {expected behavior from scenario}', () => {
+       // Given - initial context
+       cy.visit('/path-to-feature');
+       
+       // When - action occurs
+       cy.get('[data-testid="action-button"]').click();
+       
+       // Then - expected outcome
+       cy.contains('Expected success message');
+       cy.get('[data-testid="result"]').should('be.visible');
+     });
+   });
    ```
-3. Add a comment at the top of the feature file:
-   ```gherkin
-   # Based on user story: user-stories/{branch-name}.md
-   ```
+4. Structure each scenario as a separate `it()` block
+5. Use inline comments (`// Given`, `// When`, `// Then`) to maintain Given-When-Then clarity
+6. Reference project-specific test conventions (login commands, test data setup) from CLAUDE.md
 
 ## Configuration
 
@@ -304,18 +320,18 @@ So that I can legally acknowledge the terms and conditions without printing and 
 ## Acceptance Criteria
 
 ### Scenario 1: Student signs application before submission
-**Given** I have completed all required application sections
-**When** I navigate to the Application Submission tab
+**Given** I have completed all required application sections\
+**When** I navigate to the Application Submission tab\
 **Then** I see a signature canvas where I can draw my signature with my mouse or touchpad
 
 ### Scenario 2: Student cannot submit without signature
-**Given** I have not provided a digital signature
-**When** I attempt to submit my application
+**Given** I have not provided a digital signature\
+**When** I attempt to submit my application\
 **Then** I see an error message "Signature required" and the submit button remains disabled
 
 ### Scenario 3: Signature is saved and displayed on submitted application
-**Given** I have signed and submitted my application
-**When** a staff member views my submitted application
+**Given** I have signed and submitted my application\
+**When** a staff member views my submitted application\
 **Then** they see my digital signature displayed in the Application Submission section
 
 ## Dependencies
