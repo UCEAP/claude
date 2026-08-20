@@ -32,7 +32,22 @@ fi
 # v3 returns descriptions and comment bodies as Atlassian Document Format (ADF) JSON, not strings.
 # The adf2md filter below produces a markdown-ish plaintext approximation; unknown node types fall
 # through to their concatenated children so text content is never silently dropped.
+#
+# Text marks (strong/em/code/strike/link) and tables are rendered back into markdown so that a
+# comment posted by jira-comment reads the same way coming back out. Without the table cases a
+# table would fall through to $inner and its cells would run together with no delimiters.
 jq -r '
+  def marked($n; $text):
+    ($n.marks // []) | map(.type) as $m |
+    ($text
+      | (if IN("code";   $m[]) then "`" + . + "`"   else . end)
+      | (if IN("strong"; $m[]) then "**" + . + "**" else . end)
+      | (if IN("em";     $m[]) then "*" + . + "*"   else . end)
+      | (if IN("strike"; $m[]) then "~~" + . + "~~" else . end))
+    as $t
+    | ((($n.marks // []) | map(select(.type == "link")) | first) // null) as $link
+    | if $link == null then $t else "[" + $t + "](" + ($link.attrs.href // "") + ")" end;
+
   def adf2md:
     if type == "string" then .
     elif . == null then ""
@@ -40,16 +55,44 @@ jq -r '
     elif type == "object" then
       . as $n |
       ((.content // []) | map(adf2md) | join("")) as $inner |
-      if   .type == "text"        then (.text // "")
+      if   .type == "text"        then marked($n; (.text // ""))
       elif .type == "paragraph"   then $inner + "\n\n"
       elif .type == "heading"     then ("######" | .[0:($n.attrs.level // 1)]) + " " + $inner + "\n\n"
       elif .type == "hardBreak"   then "\n"
-      elif .type == "bulletList"
-        or .type == "orderedList" then $inner + "\n"
-      elif .type == "listItem"    then "- " + ($inner | sub("\n+$"; "")) + "\n"
-      elif .type == "blockquote"  then "> " + ($inner | sub("\n+$"; "")) + "\n\n"
-      elif .type == "codeBlock"   then "```\n" + $inner + "\n```\n\n"
+      # The parent list emits the marker for each item, so ordered lists keep
+      # their numbering. Continuation lines are indented two spaces, which is what
+      # makes a nested list render as nested rather than flat.
+      elif .type == "bulletList"  then
+        (((.content // []) | map("- " + (adf2md | sub("\n+$"; "") | gsub("\n"; "\n  ")
+                                          | gsub("\n[ \t]+\n"; "\n\n")))
+          | join("\n")) + "\n\n")
+      elif .type == "orderedList" then
+        (((.content // []) | to_entries | map(
+            (((.key + ($n.attrs.order // 1)) | tostring) + ". ")
+            + (.value | adf2md | sub("\n+$"; "") | gsub("\n"; "\n   ")
+                       | gsub("\n[ \t]+\n"; "\n\n")))
+          | join("\n")) + "\n\n")
+      elif .type == "listItem"    then ($inner | sub("\n+$"; ""))
+      elif .type == "blockquote"  then
+        ("> " + ($inner | sub("\n+$"; "") | gsub("\n"; "\n> ")) + "\n\n")
+      elif .type == "codeBlock"   then "```" + ($n.attrs.language // "") + "\n" + ($inner | sub("\n+$"; "")) + "\n```\n\n"
       elif .type == "rule"        then "\n---\n\n"
+      elif .type == "table"       then
+        # Flatten each row to a list of single-line cell strings. adf2md is in
+        # scope here (recursive def), so cells render with their marks intact.
+        ((.content // []) | map(
+          (.content // []) | map(
+            adf2md | gsub("\n+$"; "") | gsub("\n"; " ") | gsub("\\|"; "\\|")))) as $rows |
+        (if ($rows | length) == 0 then "" else
+          (($rows[0] | length) as $w |
+           ("| " + ($rows[0] | join(" | ")) + " |\n")
+           + "|" + ([range(0; $w)] | map("---") | join("|")) + "|\n"
+           + (($rows[1:] // []) | map("| " + join(" | ") + " |") | join("\n"))
+           + "\n\n")
+        end)
+      elif .type == "tableRow"
+        or .type == "tableHeader"
+        or .type == "tableCell"   then $inner
       elif .type == "mention"     then ($n.attrs.text // ("@" + ($n.attrs.id // "?")))
       elif .type == "inlineCard"  then ($n.attrs.url // "")
       elif .type == "media"
