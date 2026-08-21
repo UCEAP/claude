@@ -3,13 +3,20 @@
 # Usage:
 #   scripts/jira-comment <KEY> -m "comment text"
 #   scripts/jira-comment <KEY> < comment.md
-# Markdown subset supported (blocks separated by blank lines):
-#   "# " / "## " / "### " — headings
-#   "- " lines              — bullet list
-#   "1. " / "2. " ... lines — ordered list
-#   anything else            — paragraph (line breaks preserved as hard breaks)
-# Bare URLs in text are auto-linkified by Jira's renderer; no inline parsing is done.
-# Requires env vars: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BASE_URL.
+# Markdown is converted to ADF by md2adf.py alongside this script. Supported:
+#   "# ".."###### "        — headings
+#   "- " / "* "            — bullet list (2-space indent nests)
+#   "1. "                  — ordered list
+#   "| a | b |" + "|---|"  — table (first row becomes the header)
+#   "> "                   — blockquote
+#   ```lang ... ```        — code block
+#   "---"                  — horizontal rule
+#   anything else          — paragraph (single newlines become hard breaks)
+# Inline: **strong**, *em*, _em_, `code`, ~~strike~~, [text](url). Inline code is
+# literal, so `**this**` stays as written; conversely **`this`** posts as code
+# without the bold, because ADF forbids combining code with any other mark.
+# Bare URLs are linkified by Jira.
+# Requires env vars: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BASE_URL, and python3.
 set -euo pipefail
 
 key=""
@@ -18,7 +25,7 @@ message=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -m|--message) message="$2"; shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)
       if [[ -z "$key" ]]; then key="$1"; shift
       else echo "Unexpected argument: $1" >&2; exit 2
@@ -43,47 +50,21 @@ fi
 : "${JIRA_API_TOKEN:?JIRA_API_TOKEN not set}"
 : "${JIRA_BASE_URL:?JIRA_BASE_URL not set}"
 
-# Markdown → ADF. Blocks split on blank lines. The line-break / list detection
-# is intentionally minimal — Jira's renderer auto-linkifies URLs and bolds etc.
-# are dropped (text is rendered verbatim inside text nodes).
-adf=$(jq -n --arg md "$message" '
-  def lines_of: split("\n");
+# Markdown → ADF. The conversion lives in md2adf.py next to this script; see the
+# header above for the supported syntax. Keeping it in Python rather than jq is
+# what makes inline marks (bold/code/links) and tables tractable to maintain.
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+md2adf="$script_dir/md2adf.py"
 
-  def to_paragraph(lines):
-    {type: "paragraph",
-     content: (lines
-       | map({type: "text", text: .})
-       | . as $ts
-       | reduce range(0; ($ts | length)) as $i ([];
-           . + (if $i == 0 then [$ts[$i]] else [{type: "hardBreak"}, $ts[$i]] end)))};
+if [[ ! -f "$md2adf" ]]; then
+  echo "Cannot find md2adf.py next to $(basename "$0") (looked in $script_dir)" >&2
+  exit 1
+fi
 
-  def to_block:
-    . as $block
-    | lines_of as $lines
-    | if   ($block | startswith("### ")) then
-        {type:"heading", attrs:{level:3}, content:[{type:"text", text: $block[4:]}]}
-      elif ($block | startswith("## "))  then
-        {type:"heading", attrs:{level:2}, content:[{type:"text", text: $block[3:]}]}
-      elif ($block | startswith("# "))   then
-        {type:"heading", attrs:{level:1}, content:[{type:"text", text: $block[2:]}]}
-      elif (($lines | length) > 0 and all($lines[]; startswith("- "))) then
-        {type:"bulletList",
-         content: ($lines | map(
-           {type:"listItem",
-            content:[{type:"paragraph", content:[{type:"text", text: .[2:]}]}]}))}
-      elif (($lines | length) > 0 and all($lines[]; test("^[0-9]+\\. "))) then
-        {type:"orderedList",
-         content: ($lines | map(
-           {type:"listItem",
-            content:[{type:"paragraph",
-                      content:[{type:"text", text: (sub("^[0-9]+\\. "; ""))}]}]}))}
-      else
-        to_paragraph($lines)
-      end;
-
-  {type:"doc", version:1,
-   content: ($md | gsub("\r\n"; "\n") | split("\n\n") | map(select(length > 0) | to_block))}
-')
+if ! adf=$(printf '%s' "$message" | python3 "$md2adf"); then
+  echo "Failed to convert markdown to ADF." >&2
+  exit 1
+fi
 
 payload=$(jq -nc --argjson body "$adf" '{body: $body}')
 
