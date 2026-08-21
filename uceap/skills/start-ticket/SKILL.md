@@ -15,7 +15,9 @@ Four bash helpers ship in this skill's `scripts/` directory. They wrap the Jira 
 - `jira-comment <KEY> -m "<markdown>"` (or read from stdin) — post a markdown comment, converted to ADF.
   Supports headings, bullet/ordered lists (2-space indent nests), tables (`| a | b |` over `|---|`),
   blockquotes, fenced code blocks, `---` rules, and inline `**strong**`, `*em*`, `` `code` ``,
-  `~~strike~~`, `[text](url)`. Run `jira-comment --help` for the authoritative list.
+  `~~strike~~`, `[text](url)`. A code span inside another mark — **`ref`** — posts as code
+  without the decoration, since ADF forbids combining the code mark with any other.
+  Run `jira-comment --help` for the authoritative list.
 
 **Resolve the script directory once at the start of every invocation** and reuse it. The skill is installed under `~/.claude/plugins/`, but the exact subpath varies by version. Use:
 

@@ -9,8 +9,10 @@ a |---| delimiter row, thematic breaks (---), and paragraphs. Single newlines
 inside a paragraph become hard breaks.
 
 Inline syntax: `code`, **strong**, *em*, _em_, ~~strike~~ and [text](url).
-Inline code wins over everything, so `**not bold**` stays literal. Bare URLs
-are left alone -- Jira's renderer linkifies them.
+Inline code wins over everything, so `**not bold**` stays literal, and a code
+span inside another mark -- **`ref`** -- keeps the code and drops the bold,
+because ADF forbids combining the code mark with any other. Bare URLs are left
+alone -- Jira's renderer linkifies them.
 
 Anything unrecognised is emitted as plain paragraph text rather than dropped.
 """
@@ -39,6 +41,14 @@ MARK_NAME = {"code": "code", "strong": "strong", "strike": "strike",
 def text_node(text, marks):
     node = {"type": "text", "text": text}
     if marks:
+        # ADF's code mark is exclusive: pairing it with strong/em/strike/link
+        # is rejected as HTTP 400 INVALID_INPUT, and the error names no node,
+        # so the cause is invisible. Markdown reaches this via a code span
+        # inside another mark -- **`ref`** or [`text`](url) -- which nests the
+        # outer mark, not via a code span containing markup. Keep the code mark
+        # so the text stays literal and drop the decoration.
+        if any(m["type"] == "code" for m in marks):
+            marks = [{"type": "code"}]
         node["marks"] = list(marks)
     return node
 
