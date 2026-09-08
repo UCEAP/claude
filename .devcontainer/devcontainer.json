@@ -5,8 +5,6 @@
   "containerEnv": {
     // Tell our scripts where to find the workspace
     "WORKSPACE_FOLDER": "${containerWorkspaceFolder}",
-    // Azure AI Foundry API Key
-    "ANTHROPIC_FOUNDRY_API_KEY": "${localEnv:ANTHROPIC_FOUNDRY_API_KEY}",
     // Inherit (optional) Atuin key and password from local environment to setup sync.
     "ATUIN_KEY": "${localEnv:ATUIN_KEY}",
     "ATUIN_PASSWORD": "${localEnv:ATUIN_PASSWORD}",
@@ -16,10 +14,6 @@
   },
   // GitHub Codespaces secrets
   "secrets": {
-    "ANTHROPIC_FOUNDRY_API_KEY": {
-      "description": "Azure AI Foundry API Key for Claude Code (OPTIONAL)",
-      "documentationUrl": "https://code.claude.com/docs/en/microsoft-foundry"
-    },
     "ATUIN_KEY": {
       "description": "Set your Atuin key for sync (OPTIONAL)",
       "documentationUrl": "https://docs.atuin.sh/guide/sync/"

@@ -11,7 +11,6 @@ cp /workspaces/claude/.devcontainer/tmux.conf ~/.tmux.conf
 # Install Claude Code
 # TODO inherit this properly, it's already in devcontainer-on-create
 curl -fsSL https://claude.ai/install.sh | bash
-echo -e "export CLAUDE_CODE_USE_FOUNDRY=1\nexport ANTHROPIC_FOUNDRY_RESOURCE=uceap-claude-test-resource" | tee -a ~/.bashrc ~/.zshrc ~/.zshrc.local
 claude plugin marketplace add UCEAP/claude
 claude plugin install uceap
 
