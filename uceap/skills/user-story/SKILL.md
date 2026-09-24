@@ -2,7 +2,7 @@
 name: user-story
 description: Generate a user story following best practices for the current feature branch
 author: "Shaun Drong <sdrong@uceap.universityofcalifornia.edu> (Original: [Britt Crawford](https://github.com/britt/claude-code-skills/blob/main/skills/user-story-template/SKILL.md))"
-version: "1.0.1"
+version: "1.1.0"
 license: "MIT"
 user_invocable: true
 user_intent:
@@ -16,7 +16,7 @@ user_intent:
 
 ## Overview
 
-This skill creates well-formed user stories following product management best practices and the INVEST criteria. User stories are saved to the project's `user-stories/` directory using the current branch name as the filename.
+This skill creates well-formed user stories following product management best practices and the INVEST criteria. Each story also carries its own security analysis — abuser stories plus a STRIDE threat checklist — so security is considered while the feature is being defined rather than at code review. User stories are saved to the project's `user-stories/` directory using the current branch name as the filename.
 
 User stories serve as the foundation for the Documentation Driven Development (DDD) workflow:
 1. **User Story** - Document the feature from the user's perspective
@@ -91,7 +91,31 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    **Then** my application status changes to "Submitted" and I receive a confirmation email
    ```
 
-6. **Ask About Optional Sections:**
+6. **Identify Security Threats (Abuser Stories + STRIDE):**
+
+   Security belongs in the story, not only in code review. Work through this with the user:
+
+   **a. Map the attack surface:**
+   - Name what this feature actually exposes: new routes or endpoints, new permissions or roles, new form submissions or AJAX callbacks, third-party integrations, newly stored or transmitted data.
+   - If it exposes none of those, say so — most STRIDE rows will legitimately be `N/A`.
+
+   **b. Propose 1-2 abuser stories:**
+   - Write them from the attacker's point of view, scoped to *this* feature:
+     ```
+     As an attacker
+     I want {malicious action against this feature}
+     So that {illicit gain}
+     ```
+   - Pair each with a **Mitigation** naming the specific control that stops it and how it will be verified (an acceptance criterion, an e2e test, or an existing platform behavior).
+   - Two plausible threats beat an exhaustive list. Pick the ones a reviewer should actually check.
+
+   **c. Answer the six STRIDE prompts:**
+   - Answers must be concrete and specific to this feature, the same way INVEST answers are.
+   - `N/A` is a valid answer when a category genuinely does not apply — give the short reason instead of leaving it blank.
+   - Never answer with intent ("we'll validate inputs"). Name the mechanism, the field, the permission, or the module.
+   - Present the draft answers to the user for approval or modification.
+
+7. **Ask About Optional Sections:**
 
    Use AskUserQuestion to ask if the user wants to include:
    - Dependencies (other features, tickets, or systems this depends on)
@@ -99,7 +123,7 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    - Technical Notes (implementation considerations, architecture decisions)
    - Design Assets (links to mockups, wireframes, Figma files, etc.)
 
-7. **Write the User Story File:**
+8. **Write the User Story File:**
 
    Create or update the file at `user-stories/{branch-name}.md` with this structure:
 
@@ -131,6 +155,17 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    **When** {action occurs}\
    **Then** {expected outcome}
 
+   ## Abuser Stories
+
+   {1-2 abuser stories, or "None - {short reason}" for a feature with no new attack surface}
+
+   ### Abuser Story 1: {Name}
+   As an {attacker type}\
+   I want {malicious action}\
+   So that {illicit gain}
+
+   **Mitigation**: {the specific control that prevents this, and how it is verified}
+
    ## Dependencies
    {List dependencies or write "None"}
 
@@ -153,20 +188,31 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
    - [ ] **Estimable**: Can the team gauge the effort required?
    - [ ] **Small**: Can this be completed in one sprint?
    - [ ] **Testable**: Are there clear, verifiable success criteria?
-   ```
-   Note: In each scenarios section a '\' is need to display a line return when rendering the markdown. The header and last line do not need this '\'. This strictly a markdown rendering issue.
 
-8. **Ensure Directory Exists:**
+   ## STRIDE Threat Checklist
+
+   Answer each prompt for *this* feature. Use `N/A` plus a short reason where a category does not apply.
+
+   - [ ] **Spoofing**: How is the caller authenticated? {answer}
+   - [ ] **Tampering**: Can the request or response be altered in transit or at rest? {answer}
+   - [ ] **Repudiation**: Are this feature's actions logged with user, timestamp, and outcome so disputes can be traced? {answer}
+   - [ ] **Information Disclosure**: Does the feature return only the data the requester is entitled to? Are error messages free of internal details? {answer}
+   - [ ] **Denial of Service**: Is the feature rate-limited, and are external calls cached and timeout-bounded so a slow upstream can't take down the portal? {answer}
+   - [ ] **Elevation of Privilege**: Is access enforced by role or permission on the route or entity, not just by hiding the UI? {answer}
+   ```
+   Note: In each scenario and abuser story a '\' is need to display a line return when rendering the markdown. The header and last line do not need this '\'. This strictly a markdown rendering issue.
+
+9. **Ensure Directory Exists:**
    ```bash
    mkdir -p user-stories
    ```
 
-9. **Confirm and Save:**
+10. **Confirm and Save:**
    - Display a preview of the user story to the user
    - Ask for final confirmation
    - Write the file using the Write tool
 
-10. **Git Operations (Optional):**
+11. **Git Operations (Optional):**
     - Ask the user: "Should I stage and commit this user story?"
     - If yes:
       ```bash
@@ -175,7 +221,7 @@ When this skill is invoked (e.g., `/user-story`), create a user story for the cu
       ```
     - If no: inform the user they can commit it later
 
-11. **Next Steps Guidance:**
+12. **Next Steps Guidance:**
     - Remind the user of the DDD workflow order:
       1. ✅ User Story (just completed)
       2. ⏭️ Documentation (`docs/` directory)
@@ -213,6 +259,24 @@ User stories should meet these quality standards:
 - **Small**: Can be completed within a single sprint (typically 1-2 weeks)
 - **Testable**: Has clear criteria to verify when it's done
 
+## STRIDE Threat Modeling
+
+STRIDE (Microsoft's threat-modeling framework) gives security the same shape INVEST gives quality: six fixed prompts, every answer specific to the ticket.
+
+- **Spoofing**: Pretending to be someone else — how is the caller authenticated, and where do its credentials live? (e.g. an API key in Drupal's Key module, never in code or config export)
+- **Tampering**: Altering data in transit or at rest — TLS only, server-side validation, values that matter never trusted from the client
+- **Repudiation**: Denying an action took place — are the feature's actions and failures logged with user, timestamp, and outcome?
+- **Information Disclosure**: Exposing data to the wrong party — does the feature return only the requester's own data, and are error messages free of internal details?
+- **Denial of Service**: Exhausting the system — rate limits, payload caps, and cached, timeout-bounded calls to anything external
+- **Elevation of Privilege**: Doing more than you're allowed — access enforced by role or permission on the route or entity, not by hiding the UI
+
+### How to use it
+
+- **Answer per feature, not per framework.** The prompts are fixed; the answers are only useful if they name this ticket's routes, fields, permissions, and modules.
+- **`N/A` is a legitimate answer**, exactly as it is for INVEST — give the reason in a few words. A story that stays entirely inside well-worn paths (an existing entity form, an existing view) will have several.
+- **Abuser stories carry the specifics.** Where a threat needs Claude or a reviewer to check something concrete, write it as an abuser story with a named mitigation instead of adding a standing rule elsewhere. That keeps the security context scoped to the ticket being worked on.
+- **Mitigations that can be tested should become tests** — either an acceptance criterion scenario or an e2e test.
+
 ## Anti-Patterns to Avoid
 
 - ❌ **Too technical**: "Refactor the authentication middleware to use JWT tokens"
@@ -227,6 +291,12 @@ User stories should meet these quality standards:
 - ❌ **No acceptance criteria**: Story with no testable conditions
   - ✅ **Better**: Include specific Given-When-Then scenarios
 
+- ❌ **Boilerplate security answers**: "Tampering: we'll validate all inputs and use HTTPS"
+  - ✅ **Better**: "Tampering: balance is re-fetched server-side on submit and never read from the posted form; the AJAX route carries Drupal's CSRF token"
+
+- ❌ **Blank STRIDE rows**: Leaving categories empty because they felt irrelevant
+  - ✅ **Better**: "Denial of Service: N/A — no new endpoint, renders inside the existing application view"
+
 ## Integration with Other Skills
 
 ### With `/plan` (Planning Mode)
@@ -236,6 +306,7 @@ When the user runs `/plan`, Claude should:
 2. If it exists, Read the file and incorporate it into planning:
    - Use the user story to understand the feature's purpose
    - Reference acceptance criteria when designing the implementation
+   - Treat the abuser stories and STRIDE answers as requirements: the named mitigations are part of the implementation, not an afterthought
    - Include a "User Story" section in the plan that links to the file
 3. If it doesn't exist, suggest creating one first with `/user-story`
 
@@ -276,7 +347,7 @@ When writing pure Cypress `.cy.js` test files:
      });
    });
    ```
-4. Structure each scenario as a separate `it()` block
+4. Structure each scenario as a separate `it()` block, and add a test for any abuser story whose mitigation is verifiable in the browser (e.g. requesting another user's record and expecting a 403)
 5. Use inline comments (`// Given`, `// When`, `// Then`) to maintain Given-When-Then clarity
 6. Reference project-specific test conventions (login commands, test data setup) from CLAUDE.md
 
@@ -334,6 +405,22 @@ So that I can legally acknowledge the terms and conditions without printing and 
 **When** a staff member views my submitted application\
 **Then** they see my digital signature displayed in the Application Submission section
 
+## Abuser Stories
+
+### Abuser Story 1: Signing someone else's application
+As an attacker with a valid student account\
+I want to post a signature payload that names another student's application ID\
+So that I can submit or alter their application without them knowing
+
+**Mitigation**: The save endpoint resolves the application entity from the session user and ignores any application ID in the payload. Covered by an e2e test that posts another user's application ID and expects a 403.
+
+### Abuser Story 2: Storing a script in the signature field
+As an attacker\
+I want to post a crafted string instead of a signature image\
+So that it executes when a staff member reviews my application
+
+**Mitigation**: The field is validated server-side as a base64-encoded PNG under 100 KB and rendered through an `<img>` with an escaped `src`; anything else is rejected before save.
+
 ## Dependencies
 - Canvas drawing library (investigate existing Drupal modules or JavaScript libraries)
 - Signature data must be stored with the application entity
@@ -362,6 +449,15 @@ So that I can legally acknowledge the terms and conditions without printing and 
 - [x] **Estimable**: Team estimates 3-5 days of development
 - [x] **Small**: Can be completed in one sprint
 - [x] **Testable**: Clear acceptance criteria with specific user interactions
+
+## STRIDE Threat Checklist
+
+- [x] **Spoofing**: Drupal session auth on the application form route; the signature is attached to the application owned by the authenticated user, and no user ID is accepted from the client
+- [x] **Tampering**: Existing AJAX save carries Drupal's CSRF token; the payload is re-validated server-side as a base64 PNG (max 100 KB). TLS enforced site-wide
+- [x] **Repudiation**: Signature timestamp and signing UID stored on the application entity; submission logged to the existing application audit log
+- [x] **Information Disclosure**: Signatures render only inside the application view, which already checks ownership or staff role. Validation error is "Signature required", with no internal field names
+- [x] **Denial of Service**: Payload capped at 100 KB before decoding; no external calls. Otherwise N/A — no new endpoint beyond the existing form save
+- [x] **Elevation of Privilege**: Staff viewing is gated by the existing "view any application" permission on the route, not by hiding the section in the template
 ```
 
 ## Tips for Writing Quality User Stories
@@ -379,3 +475,5 @@ So that I can legally acknowledge the terms and conditions without printing and 
 6. **Reference existing patterns**: Look at related features in the codebase to maintain consistency
 
 7. **Collaborate**: User stories are meant to start conversations, not end them. Involve stakeholders in refinement.
+
+8. **Think like an attacker once per story**: One honest pass over the six STRIDE prompts, while the feature is still being defined, catches design-level problems that no amount of code review will surface later.
