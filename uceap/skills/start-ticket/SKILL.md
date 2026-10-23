@@ -5,28 +5,16 @@ description: Start work on a Jira ticket by fetching details, creating a branch,
 
 # Start Ticket
 
-## Bundled helper scripts
+## Jira helper scripts
 
-Four bash helpers ship in this skill's `scripts/` directory. They wrap the Jira REST API so the rest of these instructions never need raw curl:
-
-- `jira-ticket <KEY>` — fetch a ticket as markdown (title, status, description, comments)
-- `jira-search <JQL> [--max N]` — search via JQL
-- `jira-transition <KEY> ["<name>"]` — list available transitions, or execute one by name (case-insensitive)
-- `jira-comment <KEY> -m "<markdown>"` (or read from stdin) — post a markdown comment, converted to ADF.
-  Supports headings, bullet/ordered lists (2-space indent nests), tables (`| a | b |` over `|---|`),
-  blockquotes, fenced code blocks, `---` rules, and inline `**strong**`, `*em*`, `` `code` ``,
-  `~~strike~~`, `[text](url)`. A code span inside another mark — **`ref`** — posts as code
-  without the decoration, since ADF forbids combining the code mark with any other.
-  Run `jira-comment --help` for the authoritative list.
-
-**Resolve the script directory once at the start of every invocation** and reuse it. The skill is installed under `~/.claude/plugins/`, but the exact subpath varies by version. Use:
+This skill uses the helper scripts from the `jira` skill in this plugin (`jira-ticket`, `jira-transition`, `jira-comment`). Resolve their directory once at the start of every invocation:
 
 ```bash
-JIRA_SCRIPTS=$(find ~/.claude/plugins -path '*/skills/start-ticket/scripts' -type d 2>/dev/null | head -1)
+JIRA_SCRIPTS=$(find ~/.claude/plugins -path '*/skills/jira/scripts' -type d 2>/dev/null | head -1)
 echo "$JIRA_SCRIPTS"   # confirm it resolved
 ```
 
-Then invoke as `"$JIRA_SCRIPTS/jira-ticket" UP-1234` etc. Since bash variables don't persist across separate tool calls, either run helper invocations as a single bash command alongside the discovery, or hardcode the resolved absolute path for the rest of the session after the first `find`.
+Then invoke as `"$JIRA_SCRIPTS/jira-ticket" UP-1234` etc. Since bash variables don't persist across separate tool calls, either run helper invocations as a single bash command alongside the discovery, or hardcode the resolved absolute path for the rest of the session after the first `find`. See the `jira` skill for each script's usage.
 
 ## Instructions
 
@@ -45,7 +33,7 @@ When this skill is invoked with a Jira ticket ID (e.g., `/start-ticket UP-1600`)
      - `JIRA_API_TOKEN` - API token for Jira authentication
      - `JIRA_BASE_URL` - Base URL of the Jira instance
    - If any are missing, inform the user which variables need to be configured
-   - Resolve `$JIRA_SCRIPTS` (see "Bundled helper scripts" above) and verify the directory exists.
+   - Resolve `$JIRA_SCRIPTS` (see "Jira helper scripts" above) and verify the directory exists.
 
 3. **Fetch Ticket Details:**
    - Run the bundled helper to fetch the ticket as markdown (title, status, description, comments — ADF auto-converted):
